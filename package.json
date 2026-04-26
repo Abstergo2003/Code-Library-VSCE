@@ -1,0 +1,162 @@
+{
+  "name": "abstergos-codelibrary",
+  "displayName": "Code Library",
+  "publisher": "Abstergo",
+  "description": "Easy way to save your important code for later. Tired of searching for that one time you encountered problem in code, to get the solution? No more, with just one click all you code is stored in organized manner, accesible from everywhere in VS Code.",
+  "version": "1.1.0",
+  "engines": {
+    "vscode": "^1.94.0"
+  },
+  "categories": [
+    "Other"
+  ],
+    "repository": {
+    "type": "git",
+    "url": "https://github.com/Abstergo2003/VS-Code-Extensions.git",
+    "directory": "codelibrary"
+  },
+  "icon": "media/icon.png",
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "abstergos-codelibrary-container",
+          "title": "Code Library",
+          "icon": "media/activity_icon.png"
+        }
+      ]
+    },
+    "views": {
+      "abstergos-codelibrary-container": [
+        {
+          "icon": "./media/icon.ico",
+          "id": "abstergos-codelibrary-view",
+          "name": "Library",
+          "dragAndDropEnabled": true
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "abstergos-codelibrary.refresh",
+        "category": "Code Library",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "abstergos-codelibrary.search",
+        "category": "Code Library",
+        "title": "Search",
+        "icon": "$(search)"
+      },
+      {
+        "command": "abstergos-codelibrary.clearSearch",
+        "category": "Code Library",
+        "title": "Clear Search",
+        "icon": "$(close)"
+      },
+      {
+        "command": "abstergos-codelibrary.openItem",
+        "category": "Code Library",
+        "title": "Open Item"
+      },
+      {
+        "command": "abstergos-codelibrary.deleteItem",
+        "category": "Code Library",
+        "title": "Delete",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "abstergos-codelibrary.renameItem",
+        "category": "Code Library",
+        "title": "Rename",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "abstergos-codelibrary.pasteScript",
+        "category": "Code Library",
+        "title": "Paste Script from Library"
+      },
+      {
+        "command": "abstergos-codelibrary.syncScriptsFile",
+        "category": "Code Library",
+        "title": "Synchronize Library Scripts in File"
+      },
+      {
+        "command": "abstergos-codelibrary.syncScriptsDir",
+        "category": "Code Library",
+        "title": "Synchronize Library Scripts in Directory"
+      },
+      {
+        "command": "abstergos-codelibrary.saveAsBundle",
+        "category": "Code Library",
+        "title": "Save as Bundle"
+      },
+      {
+        "command": "abstergos-codelibrary.saveAsScript",
+        "category": "Code Library",
+        "title": "Save as Script"
+      }
+    ],
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "abstergos-codelibrary.renameItem",
+          "when": "view == abstergos-codelibrary-view",
+          "group": "inline"
+        },
+        {
+          "command": "abstergos-codelibrary.deleteItem",
+          "when": "view == abstergos-codelibrary-view",
+          "group": "inline"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "abstergos-codelibrary.refresh",
+          "when": "view == abstergos-codelibrary-view",
+          "group": "navigation@1"
+        },
+        {
+          "command": "abstergos-codelibrary.search",
+          "when": "view == abstergos-codelibrary-view",
+          "group": "navigation@2"
+        },
+        {
+          "command": "abstergos-codelibrary.clearSearch",
+          "when": "view == abstergos-codelibrary-view && abstergos-codelibrary.isSearching",
+          "group": "navigation@3"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "abstergos-codelibrary.saveAsBundle",
+          "when": "resourceScheme == 'file' && resourceExtname",
+          "group": "5_cutcopypaste"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "abstergos-codelibrary.saveAsScript",
+          "when": "editorHasSelection",
+          "group": "9_cutcopypaste"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.94.0",
+    "@types/mocha": "^10.0.8",
+    "@types/node": "20.x",
+    "eslint": "^9.11.1",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1"
+  }
+}
