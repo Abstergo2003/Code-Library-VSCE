@@ -112,10 +112,12 @@ class LibraryTreeProvider {
 
         const isMatch = (item) => {
             if (!this.searchQuery) return true;
-            const nameMatch = item.name.toLowerCase().includes(this.searchQuery);
+            const nameMatch = (item.name || '').toLowerCase().includes(this.searchQuery);
             const langMatch = item.lang && item.lang.toLowerCase().includes(this.searchQuery);
             const tagsMatch = item.tags && item.tags.some(t => t.toLowerCase().includes(this.searchQuery));
-            return nameMatch || langMatch || tagsMatch;
+            const descriptionMatch = item.description && item.description.toLowerCase().includes(this.searchQuery);
+            const sourceMatch = item.source && item.source.toLowerCase().includes(this.searchQuery);
+            return nameMatch || langMatch || tagsMatch || descriptionMatch || sourceMatch;
         };
 
         if (!element) {
@@ -127,7 +129,7 @@ class LibraryTreeProvider {
                     if (this.searchQuery) {
                         if (item.type === 'bundle') {
                             const matchingChildren = item.children ? item.children.filter(child => isMatch(child)) : [];
-                            if (matchingChildren.length > 0 || item.name.toLowerCase().includes(this.searchQuery)) {
+                            if (matchingChildren.length > 0 || isMatch(item)) {
                                 languages.add(lang);
                             }
                         } else if (isMatch(item)) {
@@ -146,7 +148,7 @@ class LibraryTreeProvider {
                 const itemLang = item.lang || (item.type === 'bundle' && item.children && item.children.length > 0 ? item.children[0].lang : null);
                 if (item.type === 'bundle') {
                     const matchingChildren = item.children ? item.children.filter(child => isMatch(child)) : [];
-                    const bundleMatch = item.name.toLowerCase().includes(this.searchQuery);
+                    const bundleMatch = isMatch(item);
                     return itemLang === element.lang && (matchingChildren.length > 0 || bundleMatch);
                 } else {
                     return itemLang === element.lang && isMatch(item);
@@ -256,6 +258,8 @@ class BundleItem extends vscode.TreeItem {
         this.contextValue = 'bundle';
         this.iconPath = new vscode.ThemeIcon('package');
         this.id = bundle.id;
+        this.description = formatMetadata(bundle);
+        this.tooltip = createTooltip(bundle);
     }
 }
 
@@ -267,12 +271,34 @@ class ScriptItem extends vscode.TreeItem {
         this.contextValue = 'script';
         this.iconPath = new vscode.ThemeIcon('code');
         this.id = script.id;
+        this.description = formatMetadata(script);
+        this.tooltip = createTooltip(script);
         this.command = {
             command: 'abstergos-codelibrary.openItem',
             title: 'Open Item',
             arguments: [script]
         };
     }
+}
+
+function formatMetadata(item) {
+    const tags = item.tags && item.tags.length > 0 ? `#${item.tags.join(' #')}` : '';
+    return [tags, item.description].filter(Boolean).join(' - ');
+}
+
+function createTooltip(item) {
+    const tooltip = new vscode.MarkdownString();
+    tooltip.appendMarkdown(`**${item.name}**`);
+    if (item.description) {
+        tooltip.appendMarkdown(`\n\n${item.description}`);
+    }
+    if (item.tags && item.tags.length > 0) {
+        tooltip.appendMarkdown(`\n\n**Tags:** ${item.tags.join(', ')}`);
+    }
+    if (item.source) {
+        tooltip.appendMarkdown(`\n\n**Source:** ${item.source}`);
+    }
+    return tooltip;
 }
 
 module.exports = { LibraryTreeProvider };

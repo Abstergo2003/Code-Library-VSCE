@@ -158,6 +158,153 @@ async function activate(context) {
         libraryTreeProvider.refresh();
     });
 
+    const editMetadataCommand = vscode.commands.registerCommand('abstergos-codelibrary.editMetadata', async (node) => {
+        if (!node || !['script', 'bundle'].includes(node.contextValue)) {
+            return;
+        }
+
+        const item = node.contextValue === 'script' ? node.script : node.bundle;
+        const description = await vscode.window.showInputBox({
+            prompt: 'Enter a description (optional)',
+            value: item.description || ''
+        });
+        if (description === undefined) { return; }
+
+        const tagsInput = await vscode.window.showInputBox({
+            prompt: 'Enter tags separated by commas (optional)',
+            value: (item.tags || []).join(', ')
+        });
+        if (tagsInput === undefined) { return; }
+
+        const source = await vscode.window.showInputBox({
+            prompt: 'Enter source or reference (optional)',
+            value: item.source || ''
+        });
+        if (source === undefined) { return; }
+
+        const mainUri = vscode.Uri.joinPath(context.globalStorageUri, "main.json");
+        const bytes = await vscode.workspace.fs.readFile(mainUri);
+        const data = JSON.parse(Buffer.from(bytes).toString('utf8'));
+        const tags = [...new Set(tagsInput.split(',').map(tag => tag.trim()).filter(Boolean))];
+
+        let target;
+        if (node.contextValue === 'bundle') {
+            target = data.find(candidate => candidate.id === node.bundle.id);
+        } else if (node.bundleId) {
+            const bundle = data.find(candidate => candidate.id === node.bundleId);
+            target = bundle && bundle.children.find(candidate => candidate.id === node.script.id);
+        } else {
+            target = data.find(candidate => candidate.id === node.script.id);
+        }
+
+        if (!target) {
+            vscode.window.showErrorMessage('The selected library item no longer exists.');
+            return;
+        }
+
+        target.description = description.trim();
+        target.tags = tags;
+        target.source = source.trim();
+        await vscode.workspace.fs.writeFile(mainUri, new TextEncoder().encode(JSON.stringify(data)));
+        libraryTreeProvider.refresh(libraryTreeProvider.searchQuery);
+    });
+
+    const exportLibraryCommand = vscode.commands.registerCommand('abstergos-codelibrary.exportLibrary', async () => {
+        const target = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(path.join(require('os').homedir(), 'code-library.json')),
+            filters: { 'Code Library JSON': ['json'] },
+            saveLabel: 'Export Library'
+        });
+        if (!target) { return; }
+
+        try {
+            const snapshot = await createLibrarySnapshot(context);
+            await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(JSON.stringify(snapshot, null, 2)));
+            vscode.window.showInformationMessage(`Exported ${snapshot.items.length} library items.`);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to export library: ${error.message}`);
+        }
+    });
+
+    const backupLibraryCommand = vscode.commands.registerCommand('abstergos-codelibrary.backupLibrary', async () => {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const target = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(path.join(require('os').homedir(), `code-library-backup-${timestamp}.json`)),
+            filters: { 'Code Library Backup': ['json'] },
+            saveLabel: 'Create Backup'
+        });
+        if (!target) { return; }
+
+        try {
+            const snapshot = await createLibrarySnapshot(context);
+            await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(JSON.stringify(snapshot, null, 2)));
+            vscode.window.showInformationMessage(`Created backup with ${snapshot.items.length} library items.`);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to create backup: ${error.message}`);
+        }
+    });
+
+    const importLibraryCommand = vscode.commands.registerCommand('abstergos-codelibrary.importLibrary', async () => {
+        const files = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            filters: { 'Code Library JSON': ['json'] },
+            openLabel: 'Import Library'
+        });
+        if (!files || files.length === 0) { return; }
+
+        try {
+            const bytes = await vscode.workspace.fs.readFile(files[0]);
+            const snapshot = JSON.parse(Buffer.from(bytes).toString('utf8'));
+            if (!snapshot || !Array.isArray(snapshot.items)) {
+                throw new Error('The selected file is not a valid Code Library export.');
+            }
+
+            const mainUri = vscode.Uri.joinPath(context.globalStorageUri, 'main.json');
+            const currentBytes = await vscode.workspace.fs.readFile(mainUri);
+            const data = JSON.parse(Buffer.from(currentBytes).toString('utf8'));
+            const importedItems = [];
+
+            for (const originalItem of snapshot.items) {
+                if (!originalItem || !originalItem.name || !originalItem.type) {
+                    continue;
+                }
+
+                const item = { ...originalItem };
+                const oldId = item.id;
+                item.id = generateShortId([...data, ...importedItems]);
+
+                if (item.type === 'bundle') {
+                    item.children = Array.isArray(item.children) ? item.children : [];
+                    for (const child of item.children) {
+                        const childOldId = child.id;
+                        child.id = generateShortId([...data, ...importedItems]);
+                        if (typeof child.content === 'string') {
+                            await writeLibraryContent(context, child.id, child.content);
+                        } else if (childOldId && typeof originalItem.contentById?.[childOldId] === 'string') {
+                            await writeLibraryContent(context, child.id, originalItem.contentById[childOldId]);
+                        }
+                        delete child.content;
+                    }
+                } else if (typeof item.content === 'string') {
+                    await writeLibraryContent(context, item.id, item.content);
+                    delete item.content;
+                } else if (oldId) {
+                    await writeLibraryContent(context, item.id, '');
+                }
+
+                delete item.contentById;
+                importedItems.push(item);
+            }
+
+            data.push(...importedItems);
+            await vscode.workspace.fs.writeFile(mainUri, new TextEncoder().encode(JSON.stringify(data)));
+            libraryTreeProvider.refresh(libraryTreeProvider.searchQuery);
+            vscode.window.showInformationMessage(`Imported ${importedItems.length} library items.`);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to import library: ${error.message}`);
+        }
+    });
+
     const pasteScriptCommand = vscode.commands.registerCommand('abstergos-codelibrary.pasteScript', async () => {
         const mainUri = vscode.Uri.joinPath(context.globalStorageUri, "main.json");
         const bytes = await vscode.workspace.fs.readFile(mainUri);
@@ -383,7 +530,7 @@ async function activate(context) {
         libraryTreeProvider.refresh();
 	});
 
-	context.subscriptions.push(refreshCommand, searchCommand, clearSearchCommand, openItemCommand, deleteItemCommand, renameItemCommand, pasteScriptCommand, syncScriptsFileCommand, syncScriptsDirCommand, saveAsBundle, saveAsScript);
+	context.subscriptions.push(refreshCommand, searchCommand, clearSearchCommand, openItemCommand, deleteItemCommand, renameItemCommand, editMetadataCommand, exportLibraryCommand, importLibraryCommand, backupLibraryCommand, pasteScriptCommand, syncScriptsFileCommand, syncScriptsDirCommand, saveAsBundle, saveAsScript);
 }
 
 /**
@@ -669,114 +816,41 @@ function getFunctionsAsObjects(codeString, language) {
 			text: codeString
 		}]
     }
-    
+
+    const maskedCode = maskCode(codeString, language);
     const functions = [];
+    const flags = regex.flags.includes('g') ? regex.flags : `${regex.flags}g`;
+    const globalRegex = new RegExp(regex.source, flags);
     let match;
-    const globalRegex = new RegExp(regex.source, 'g');
-	let wasMatch = false;
-    while ((match = globalRegex.exec(codeString)) !== null) {
-		wasMatch = true;
+    while ((match = globalRegex.exec(maskedCode)) !== null) {
         const funcName = match[1];
         const funcStartIndex = match.index;
-        let funcBody = match[0]; // Start with the matched line
-        let endIndex = funcStartIndex + match[0].length;
+        let bodyStart = funcStartIndex;
+        let endIndex;
 
         if (language === 'python') {
-            // Determine base indentation from the start of the line
             const lineStart = codeString.lastIndexOf('\n', funcStartIndex) + 1;
-            const leadingText = codeString.slice(lineStart, funcStartIndex);
-            const indentationMatch = leadingText.match(/^\s*/);
-            const baseIndentation = (indentationMatch ? indentationMatch[0].length : 0);
-
-            // Look back for decorators
-            let decorators = [];
-            const linesBefore = codeString.slice(0, lineStart).split('\n');
-            for (let i = linesBefore.length - 2; i >= 0; i--) { // -2 because split adds an empty string if it ends in \n
-                const line = linesBefore[i];
-                if (line.trim().startsWith('@')) {
-                    decorators.unshift(line);
-                } else if (line.trim().length === 0) {
-                    continue;
-                } else {
-                    break;
-                }
-            }
-
-            if (decorators.length > 0) {
-                funcBody = decorators.join('\n') + '\n' + leadingText + funcBody;
-            }
-
-            // Get the rest of the current line after the match
-            let currentLineEnd = codeString.indexOf('\n', endIndex);
-            if (currentLineEnd === -1) currentLineEnd = codeString.length;
-            funcBody += codeString.slice(endIndex, currentLineEnd);
-            endIndex = currentLineEnd;
-
-            const lines = codeString.slice(endIndex).split('\n');
-            if (lines.length > 0 && lines[0] === '') lines.shift();
-
-            for (const line of lines) {
-                if (line.trim().length === 0) {
-                    funcBody += '\n' + line;
-                    endIndex += line.length + 1;
-                    continue;
-                }
-                const lineIndentationMatch = line.match(/^\s*/);
-                const lineIndentation = lineIndentationMatch ? lineIndentationMatch[0].length : 0;
-                if (lineIndentation > baseIndentation) {
-                    funcBody += '\n' + line;
-                    // Update endIndex as we consume lines
-                    endIndex += line.length + 1; // +1 for the newline
-                } else {
-                    break;
-                }
-            }
+            const baseIndentation = getIndentation(codeString.slice(lineStart, funcStartIndex));
+            bodyStart = getPythonDeclarationStart(codeString, lineStart);
+            endIndex = findPythonEnd(codeString, maskedCode, lineStart, baseIndentation);
         } else if (language === 'haskell') {
-            const lines = codeString.slice(endIndex).split("\n");
-            for (const line of lines) {
-                if (/^\s*[a-zA-Z0-9_$]+\s*.*=/.test(line)) break;
-                if (line.trim()) {
-                    funcBody += `\n${line}`;
-                    endIndex += line.length + 1;
-                }
-            }
+            endIndex = findLineBlockEnd(codeString, maskedCode, funcStartIndex, /^[a-zA-Z0-9_$]+\s+.*=/);
         } else if (language === 'makefile') {
-            const lines = codeString.slice(endIndex).split("\n");
-            for (const line of lines) {
-                // If line starts with a non-tab character and contains a colon, it's likely the next target
-                if (line.trim() && !line.startsWith('\t') && line.includes(':')) break;
-                funcBody += `\n${line}`;
-                endIndex += line.length + 1;
-            }
+            endIndex = findMakefileTargetEnd(codeString, maskedCode, funcStartIndex);
+        } else if (['sql', 'mysql', 'postgresql'].includes(language)) {
+            endIndex = findSqlEnd(codeString, funcStartIndex);
         } else {
-            let braceCount = 1;
-			let omitFirst = true;
-            while (braceCount > 0 && endIndex < codeString.length) {
-                const char = codeString[endIndex];
-                if (char === '{') {
-					if (omitFirst) {
-						omitFirst = false;
-					} else {
-						braceCount++;
-					}
-				}
-                if (char === '}') {
-					braceCount--;
-				}
-                funcBody += char;
-                endIndex++;
-            }
+            endIndex = findBraceBlockEnd(codeString, maskedCode, funcStartIndex + match[0].length);
         }
 
         functions.push({
             name: funcName,
-            text: funcBody.trim()
+            text: codeString.slice(bodyStart, endIndex).trim()
         });
-        
-        // Advance the regex to the end of this function to avoid matching nested functions
         globalRegex.lastIndex = endIndex;
     }
-	if (!wasMatch) {
+
+    if (functions.length === 0) {
 		return [{
 			name: `${language} Script`,
 			text: codeString
@@ -784,7 +858,218 @@ function getFunctionsAsObjects(codeString, language) {
 	}
     return functions;
 }
+
+function maskCode(code, language) {
+    const masked = code.split('');
+    let quote = null;
+    let escaped = false;
+    let blockComment = false;
+    const hashComments = ['python', 'ruby', 'shellscript', 'makefile'].includes(language);
+
+    for (let i = 0; i < code.length; i++) {
+        const current = code[i];
+        const next = code[i + 1];
+
+        if (blockComment) {
+            if (current === '*' && next === '/') {
+                masked[i] = ' ';
+                masked[i + 1] = ' ';
+                i++;
+                blockComment = false;
+            } else if (current !== '\n' && current !== '\r') {
+                masked[i] = ' ';
+            }
+            continue;
+        }
+
+        if (quote) {
+            if (current === '\n' && quote !== '`') {
+                quote = null;
+                escaped = false;
+                continue;
+            }
+            if (escaped) {
+                escaped = false;
+            } else if (current === '\\') {
+                escaped = true;
+            } else if (current === quote) {
+                quote = null;
+            }
+            if (current !== '\n' && current !== '\r') masked[i] = ' ';
+            continue;
+        }
+
+        if ((current === '/' && next === '*')) {
+            masked[i] = ' ';
+            masked[i + 1] = ' ';
+            i++;
+            blockComment = true;
+        } else if ((current === '/' && next === '/') || (hashComments && current === '#')) {
+            while (i < code.length && code[i] !== '\n') {
+                masked[i] = ' ';
+                i++;
+            }
+            i--;
+        } else if (current === '"' || current === "'" || current === '`') {
+            quote = current;
+            masked[i] = ' ';
+        }
+    }
+    return masked.join('');
+}
+
+function getIndentation(text) {
+    const match = text.match(/^[ \t]*/);
+    return match ? match[0].replace(/\t/g, '    ').length : 0;
+}
+
+function getPythonDeclarationStart(code, lineStart) {
+    let start = lineStart;
+    let cursor = lineStart - 2;
+    let iterations = 0;
+    while (cursor >= 0 && iterations++ < code.length) {
+        const previousStart = code.lastIndexOf('\n', cursor) + 1;
+        const line = code.slice(previousStart, cursor + 1);
+        if (line.trim().startsWith('@')) {
+            start = previousStart;
+            cursor = previousStart - 1;
+        } else if (!line.trim()) {
+            cursor = previousStart - 1;
+        } else {
+            break;
+        }
+    }
+    return start;
+}
+
+function findPythonEnd(code, masked, lineStart, baseIndentation) {
+    let cursor = code.indexOf('\n', lineStart);
+    if (cursor === -1) return code.length;
+    let iterations = 0;
+    while (cursor < code.length && iterations++ < code.length) {
+        const nextLineStart = cursor + 1;
+        const nextLineEnd = code.indexOf('\n', nextLineStart);
+        const end = nextLineEnd === -1 ? code.length : nextLineEnd;
+        const sourceLine = code.slice(nextLineStart, end);
+        const maskedLine = masked.slice(nextLineStart, end);
+        if (sourceLine.trim() && getIndentation(maskedLine) <= baseIndentation) return cursor;
+        const nextCursor = nextLineEnd === -1 ? code.length : nextLineEnd;
+        if (nextCursor <= cursor) return code.length;
+        cursor = nextCursor;
+    }
+    return code.length;
+}
+
+function findLineBlockEnd(code, masked, start, nextBlockPattern) {
+    let cursor = code.indexOf('\n', start);
+    while (cursor !== -1) {
+        const lineStart = cursor + 1;
+        const lineEnd = code.indexOf('\n', lineStart);
+        const end = lineEnd === -1 ? code.length : lineEnd;
+        if (nextBlockPattern.test(masked.slice(lineStart, end))) return cursor;
+        cursor = lineEnd;
+    }
+    return code.length;
+}
+
+function findMakefileTargetEnd(code, masked, start) {
+    let cursor = code.indexOf('\n', start);
+    while (cursor !== -1) {
+        const lineStart = cursor + 1;
+        const lineEnd = code.indexOf('\n', lineStart);
+        const end = lineEnd === -1 ? code.length : lineEnd;
+        const line = code.slice(lineStart, end);
+        if (line.trim() && !line.startsWith('\t') && masked.slice(lineStart, end).includes(':')) return cursor;
+        cursor = lineEnd;
+    }
+    return code.length;
+}
+
+function findSqlEnd(code, start) {
+    const dollarQuote = code.slice(start).match(/\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$/);
+    if (dollarQuote) {
+        const delimiter = dollarQuote[0];
+        const bodyStart = start + dollarQuote.index + delimiter.length;
+        const bodyEnd = code.indexOf(delimiter, bodyStart);
+        if (bodyEnd !== -1) {
+            const statementEnd = code.indexOf(';', bodyEnd + delimiter.length);
+            return statementEnd === -1 ? code.length : statementEnd + 1;
+        }
+    }
+
+    const masked = maskCode(code.slice(start), 'sql').toUpperCase();
+    const hasBegin = /\bBEGIN\b/.test(masked);
+    let blockDepth = 0;
+    let quote = null;
+    for (let i = start; i < code.length; i++) {
+        const current = code[i];
+        if (quote) {
+            if (current === quote && code[i - 1] !== '\\') quote = null;
+        } else if (current === "'" || current === '"') {
+            quote = current;
+        } else if (hasBegin && /\bBEGIN\b/.test(masked.slice(i - start, i - start + 5))) {
+            blockDepth++;
+        } else if (hasBegin && /\bEND\b/.test(masked.slice(i - start, i - start + 3))) {
+            blockDepth--;
+        } else if (current === ';' && (!hasBegin || blockDepth <= 0)) {
+            return i + 1;
+        }
+    }
+    return code.length;
+}
+
+function findBraceBlockEnd(code, masked, start) {
+    const open = masked[start - 1] === '{' ? start - 1 : masked.indexOf('{', start);
+    if (open === -1) return code.length;
+    let depth = 1;
+    for (let i = open + 1; i < masked.length; i++) {
+        if (masked[i] === '{') depth++;
+        if (masked[i] === '}' && --depth === 0) return i + 1;
+    }
+    return code.length;
+}
 function deactivate() {}
+
+async function createLibrarySnapshot(context) {
+    const mainUri = vscode.Uri.joinPath(context.globalStorageUri, 'main.json');
+    const bytes = await vscode.workspace.fs.readFile(mainUri);
+    const items = JSON.parse(Buffer.from(bytes).toString('utf8'));
+    const exportedItems = [];
+
+    for (const item of items) {
+        const exportedItem = JSON.parse(JSON.stringify(item));
+        if (exportedItem.type === 'bundle') {
+            for (const child of exportedItem.children || []) {
+                child.content = await readLibraryContent(context, child.id);
+            }
+        } else {
+            exportedItem.content = await readLibraryContent(context, exportedItem.id);
+        }
+        exportedItems.push(exportedItem);
+    }
+
+    return {
+        format: 'abstergos-code-library',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        items: exportedItems
+    };
+}
+
+async function readLibraryContent(context, id) {
+    const scriptUri = vscode.Uri.joinPath(context.globalStorageUri, 'items', `${id}.txt`);
+    try {
+        const bytes = await vscode.workspace.fs.readFile(scriptUri);
+        return Buffer.from(bytes).toString('utf8');
+    } catch {
+        return '';
+    }
+}
+
+async function writeLibraryContent(context, id, content) {
+    const scriptUri = vscode.Uri.joinPath(context.globalStorageUri, 'items', `${id}.txt`);
+    await vscode.workspace.fs.writeFile(scriptUri, new TextEncoder().encode(content));
+}
 
 function generateShortId(existingData, excludeIds = []) {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -808,5 +1093,6 @@ function generateShortId(existingData, excludeIds = []) {
 
 module.exports = {
 	activate,
-	deactivate
+	deactivate,
+	getFunctionsAsObjects
 }

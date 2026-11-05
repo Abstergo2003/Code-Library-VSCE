@@ -13,8 +13,11 @@ Access your entire library directly from the VS Code Activity Bar. Your snippets
 
 ### 🔍 Advanced Search
 Quickly find what you need with the integrated search feature in the Sidebar.
-* **Filter Everything**: Search by script name, language, or custom tags.
+* **Filter Everything**: Search by script name, language, tags, description, or source.
 * **Inline Toggle**: Toggle between full view and filtered results instantly.
+
+### 🏷️ Tags & Metadata
+Use **Edit Metadata** from a library item's context menu to add comma-separated tags, a description, and a source or reference. Metadata is shown in the tree and tooltip, and is included in library search.
 
 ### ✍️ Intelligent Saving
 * **Save as Script**: Highlight any code selection, right-click, and name it on the fly.
@@ -37,6 +40,11 @@ Keep your projects up to date with your library.
 * **File & Directory Sync**: Update all snippets in your current file or your entire project directory with one command.
 * **Selective Sync**: Add `@library-sync: disable` inside a snippet's markers to protect a specific instance from being overwritten.
 
+### 💾 Import, Export & Backup
+* **Export Library**: Save scripts, bundles, metadata, and content to a portable JSON file.
+* **Import Library**: Merge an exported library into the current library without overwriting existing items.
+* **Backup Library**: Create a timestamped full-library snapshot for safekeeping.
+
 ## 🌐 Supported Ecosystems
 
 Code Library features specialized icons and parsing for:
@@ -56,6 +64,10 @@ Search for **"Code Library"** in the Command Palette (`Ctrl+Shift+P`):
 * `Synchronize Library Scripts in Directory`: Update snippets across the whole folder.
 * `Save as Script`: Store the current selection.
 * `Save as Bundle`: Bundle functions from a file.
+* `Edit Metadata`: Add or update tags, description, and source for a script or bundle.
+* `Export Library`: Save the complete library as a portable JSON file.
+* `Import Library`: Merge a library JSON export into the current library.
+* `Backup Library`: Save a timestamped library backup.
 
 ## 📝 Usage Note
 The extension stores your data locally in VS Code's global storage, ensuring your library is accessible across all your workspaces while remaining private and secure.
